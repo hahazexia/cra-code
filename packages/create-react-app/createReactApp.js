@@ -360,13 +360,27 @@ function init() {
     });
 }
 
+/**
+ * 对 node 版本，项目生成路径，npm 和 yarn 做一些校验工作，如果发现有错误就打印错误信息然后退出程序，如果没有错误就调用 run 方法继续执行创建工作
+ * 这一步中会创建一个简单的 package.json 文件到项目路径下
+ * 
+ * @param {*} name create-react-app 命令输入的 <project-directory> 参数，项目的名字
+ * @param {*} verbose 用户输入的 --verbose 是否输入额外日志信息
+ * @param {*} version react-scripts 的版本号
+ * @param {*} template 用户设置的 template
+ * @param {*} useNpm 是否使用 npm 包管理器
+ * @param {*} usePnp 是否开启 yarn 的 pnp 特性（Plug’n’Play）
+ */
 function createApp(name, verbose, version, template, useNpm, usePnp) {
+  // 判断 node 版本是否满足 >= 10
   const unsupportedNodeVersion = !semver.satisfies(
     // Coerce strings with metadata (i.e. `15.0.0-nightly`).
+    // 强制转换 process.version 变为一个semver版本字符串
     semver.coerce(process.version),
     '>=10'
   );
 
+  // 如果 node 版本小于 10 ，就使用低版本的 react-scripts
   if (unsupportedNodeVersion) {
     console.log(
       chalk.yellow(
@@ -378,19 +392,30 @@ function createApp(name, verbose, version, template, useNpm, usePnp) {
     version = 'react-scripts@0.9.x';
   }
 
+  // 将要生成项目的位置
   const root = path.resolve(name);
+  // 新项目的名字
   const appName = path.basename(root);
 
+  // 检查用户传入的项目名是否合法，如果不合法就打印错误信息然后退出程序
   checkAppName(appName);
+
+  // 确保 name目录存在，如果不存在就创建
   fs.ensureDirSync(name);
+
+  
+  // 如果create-react-app新建项目的目录已经存在了，遍历目录中的所有文件，判断是否其中含有会造成冲突的文件
+  // 如果存在会冲突的文件，就打印错误信息，然后退出程序
   if (!isSafeToCreateProjectIn(root, name)) {
     process.exit(1);
   }
   console.log();
 
+  // 将在 root 目录下创建新 react 应用
   console.log(`Creating a new React app in ${chalk.green(root)}.`);
   console.log();
 
+  // 将 packageJson 内容写入 root/package.json 文件中
   const packageJson = {
     name: appName,
     version: '0.1.0',
@@ -401,15 +426,23 @@ function createApp(name, verbose, version, template, useNpm, usePnp) {
     JSON.stringify(packageJson, null, 2) + os.EOL
   );
 
+  // 是否全局安装了 yarn 且用户没有输入 --use-npm
   const useYarn = useNpm ? false : shouldUseYarn();
+  // 存下当前进程的工作目录
   const originalDirectory = process.cwd();
+  // 将当前工作目录切换到 root，也就是新项目目录中
   process.chdir(root);
+
+  // 如果使用 npm，检查 npm 是否能够读取 process.cwd() 当前工作目录，如果不能正常读取，打印错误信息然后退出程序  
   if (!useYarn && !checkThatNpmCanReadCwd()) {
     process.exit(1);
   }
 
+  
   if (!useYarn) {
+    // 使用 npm 的情况
     const npmInfo = checkNpmVersion();
+    // 如果 npm 版本号小于等于 6.0.0，就将 react-scripts 版本号降级为 0.9.x
     if (!npmInfo.hasMinNpm) {
       if (npmInfo.npmVersion) {
         console.log(
@@ -423,8 +456,10 @@ function createApp(name, verbose, version, template, useNpm, usePnp) {
       version = 'react-scripts@0.9.x';
     }
   } else if (usePnp) {
+    // 使用 yarn 开启 pnp 特性的情况
     const yarnInfo = checkYarnVersion();
     if (yarnInfo.yarnVersion) {
+      // 如果 当前 yarn 版本小于最小 pnp 特性版本，则不能使用 pnp 特性，提示警告信息，然后将 usePnp 置为 false
       if (!yarnInfo.hasMinYarnPnp) {
         console.log(
           chalk.yellow(
@@ -435,6 +470,8 @@ function createApp(name, verbose, version, template, useNpm, usePnp) {
         // 1.11 had an issue with webpack-dev-middleware, so better not use PnP with it (never reached stable, but still)
         usePnp = false;
       }
+      
+      // 如果 当前 yarn 版本大于最大 pnp 特性版本，则不能使用 pnp 特性，提示警告信息，然后将 usePnp 置为 false
       if (!yarnInfo.hasMaxYarnPnp) {
         console.log(
           chalk.yellow(
@@ -450,6 +487,7 @@ function createApp(name, verbose, version, template, useNpm, usePnp) {
   if (useYarn) {
     let yarnUsesDefaultRegistry = true;
     try {
+      // 判断当前 yarn 下载源地址是否是官方默认地址
       yarnUsesDefaultRegistry =
         execSync('yarnpkg config get registry').toString().trim() ===
         'https://registry.yarnpkg.com';
@@ -457,6 +495,7 @@ function createApp(name, verbose, version, template, useNpm, usePnp) {
       // ignore
     }
     if (yarnUsesDefaultRegistry) {
+      // 如果 yarn 使用默认源，则将 yarn.lock.cached 缓存文件复制到当前新创建的项目目录下并改名为 yarn.lock
       fs.copySync(
         require.resolve('./yarn.lock.cached'),
         path.join(root, 'yarn.lock')
@@ -476,8 +515,10 @@ function createApp(name, verbose, version, template, useNpm, usePnp) {
   );
 }
 
+// 是否全局安装了 yarn
 function shouldUseYarn() {
   try {
+    // 运行终端命令 yarnpkg --version 获取全局安装的 yarn 包管理器版本号
     execSync('yarnpkg --version', { stdio: 'ignore' });
     return true;
   } catch (e) {
@@ -898,11 +939,14 @@ function getPackageInfo(installPackage) {
   return Promise.resolve({ name: installPackage });
 }
 
+// 检查 npm 版本
 function checkNpmVersion() {
   let hasMinNpm = false;
   let npmVersion = null;
   try {
+    // npm 版本号
     npmVersion = execSync('npm --version').toString().trim();
+    // npm 版本号是否大于等于 6.0.0
     hasMinNpm = semver.gte(npmVersion, '6.0.0');
   } catch (err) {
     // ignore
@@ -913,6 +957,7 @@ function checkNpmVersion() {
   };
 }
 
+// 检查 yarn 版本号
 function checkYarnVersion() {
   const minYarnPnp = '1.12.0';
   const maxYarnPnp = '2.0.0';
@@ -920,14 +965,17 @@ function checkYarnVersion() {
   let hasMaxYarnPnp = false;
   let yarnVersion = null;
   try {
+    // 获取 yarn 版本号
     yarnVersion = execSync('yarnpkg --version').toString().trim();
     if (semver.valid(yarnVersion)) {
+      // 判断当前yarn版本是否在最小php特性版本和最大pnp特性版本之间
       hasMinYarnPnp = semver.gte(yarnVersion, minYarnPnp);
       hasMaxYarnPnp = semver.lt(yarnVersion, maxYarnPnp);
     } else {
       // Handle non-semver compliant yarn version strings, which yarn currently
       // uses for nightly builds. The regex truncates anything after the first
       // dash. See #5362.
+      // 处理 yarn 版本号字符串不兼容 semver 的情况
       const trimmedYarnVersionMatch = /^(.+?)[-+].+$/.exec(yarnVersion);
       if (trimmedYarnVersionMatch) {
         const trimmedYarnVersion = trimmedYarnVersionMatch.pop();
@@ -976,8 +1024,12 @@ function checkNodeVersion(packageName) {
   }
 }
 
+// 检查新项目名字是否合法，如果不合法会打印报错信息然后退出程序
 function checkAppName(appName) {
+  // 判断 appName 是否是一个有效的 npm 包名
   const validationResult = validateProjectName(appName);
+
+  // 如果包名是非法的，打印提示信息然后退出程序
   if (!validationResult.validForNewPackages) {
     console.error(
       chalk.red(
@@ -997,6 +1049,7 @@ function checkAppName(appName) {
   }
 
   // TODO: there should be a single place that holds the dependencies
+  // 包名不能是 react react-dom react-scripts，如果是这三个其中之一，就打印报错信息，然后退出程序
   const dependencies = ['react', 'react-dom', 'react-scripts'].sort();
   if (dependencies.includes(appName)) {
     console.error(
@@ -1061,7 +1114,9 @@ function setCaretRangeForRuntimeDeps(packageName) {
 // installation, lets remove them now.
 // We also special case IJ-based products .idea because it integrates with CRA:
 // https://github.com/facebook/create-react-app/pull/368#issuecomment-243446094
+// 如果create-react-app新建项目的目录已经存在了，遍历目录中的所有文件，判断是否其中含有会造成冲突的文件
 function isSafeToCreateProjectIn(root, name) {
+  // 新项目目录下可能存在的文件，这些文件是有效文件，不应该被删除
   const validFiles = [
     '.DS_Store',
     '.git',
@@ -1082,23 +1137,31 @@ function isSafeToCreateProjectIn(root, name) {
   ];
   // These files should be allowed to remain on a failed install, but then
   // silently removed during the next create.
+  // 以下错误日志文件会被保留，而在下一次创建新项目时会被静默删除
   const errorLogFilePatterns = [
     'npm-debug.log',
     'yarn-error.log',
     'yarn-debug.log',
   ];
+  // 判断文件是否包含包管理器错误日志
   const isErrorLog = file => {
     return errorLogFilePatterns.some(pattern => file.startsWith(pattern));
   };
 
+  // 读取 root 目录下所有文件，过滤掉不会引起冲突的文件
+  // 不会引起冲突的文件包含三种：有效文件，包管理器错误文件，编辑器的工程配置文件
   const conflicts = fs
     .readdirSync(root)
+    // 过滤掉所有有效文件
     .filter(file => !validFiles.includes(file))
     // IntelliJ IDEA creates module files before CRA is launched
+    // 过滤掉 IntelliJ IDEA 生成的工程配置文件
     .filter(file => !/\.iml$/.test(file))
     // Don't treat log files from previous installation as conflicts
+    // 过滤掉包管理器错误日志文件
     .filter(file => !isErrorLog(file));
 
+    // 如果包含可能会造成冲突的文件，则打印错误信息，然后返回 false
   if (conflicts.length > 0) {
     console.log(
       `The directory ${chalk.green(name)} contains files that could conflict:`
@@ -1125,6 +1188,7 @@ function isSafeToCreateProjectIn(root, name) {
   }
 
   // Remove any log files from a previous installation.
+  // 移除所有包管理器错误日志
   fs.readdirSync(root).forEach(file => {
     if (isErrorLog(file)) {
       fs.removeSync(path.join(root, file));
@@ -1148,6 +1212,8 @@ function getProxy() {
 }
 
 // See https://github.com/facebook/create-react-app/pull/3355
+// 检查 npm 是否能够读取 process.cwd() 当前工作目录
+// 原理是执行命令 npm config list，然后将此命令的输出中的 cwd 行截取出来和 process.cwd() 对比，如果相等，则说明可以读取当前工作目录
 function checkThatNpmCanReadCwd() {
   const cwd = process.cwd();
   let childOutput = null;
@@ -1157,6 +1223,7 @@ function checkThatNpmCanReadCwd() {
     // `npm config list` is the only reliable way I could find
     // to reproduce the wrong path. Just printing process.cwd()
     // in a Node process was not enough.
+    // 执行 npm config list 命令，拿到输出值
     childOutput = spawn.sync('npm', ['config', 'list']).output.join('');
   } catch (err) {
     // Something went wrong spawning node.
@@ -1167,6 +1234,8 @@ function checkThatNpmCanReadCwd() {
   if (typeof childOutput !== 'string') {
     return true;
   }
+
+  // 获取到 cwd 那一行的字符串
   const lines = childOutput.split('\n');
   // `npm config list` output includes the following line:
   // "; cwd = C:\path\to\current\dir" (unquoted)
@@ -1178,6 +1247,9 @@ function checkThatNpmCanReadCwd() {
     return true;
   }
   const npmCWD = line.substring(prefix.length);
+
+  // 判断 npm config list 输出中的 cwd 是否和 process.cwd() 相等
+  // 相等则说明 npm 命令可以在当前工作目录正常运行，返回true，否则返回 false
   if (npmCWD === cwd) {
     return true;
   }
