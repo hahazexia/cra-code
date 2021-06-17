@@ -366,7 +366,7 @@ function init() {
  * 
  * @param {*} name create-react-app 命令输入的 <project-directory> 参数，项目的名字
  * @param {*} verbose 用户输入的 --verbose 是否输入额外日志信息
- * @param {*} version react-scripts 的版本号
+ * @param {*} version 用户使用 --scripts-version 参数指定的 react-scripts 的版本号
  * @param {*} template 用户设置的 template
  * @param {*} useNpm 是否使用 npm 包管理器
  * @param {*} usePnp 是否开启 yarn 的 pnp 特性（Plug’n’Play）
@@ -502,7 +502,17 @@ function createApp(name, verbose, version, template, useNpm, usePnp) {
       );
     }
   }
-
+  /**
+   * root 将要新建的项目的绝对路径，其实就是 path.resolve(__dirname, appName)
+   * appName 用户输入的项目名字
+   * version react-scripts 的版本号
+   * verbose 用户输入的 --verbose 是否输入额外日志信息
+   * originalDirectory 创建以 appName 为名的项目文件夹之前所在的目录，也就是 root 的上一层目录
+   * template 项目的模板，默认使用 cra-template 和 cra-template-typescript
+   * useYarn 是否使用 yarn 包管理器
+   * usePnp 是否开启 yarn 的 pnp 特性
+   * 
+   */
   run(
     root,
     appName,
@@ -588,6 +598,17 @@ function install(root, useYarn, usePnp, dependencies, verbose, isOnline) {
   });
 }
 
+/**
+ *
+ * @param {*} root 将要新建的项目的绝对路径，其实就是 path.resolve(__dirname, appName)
+ * @param {*} appName 用户输入的项目名字
+ * @param {*} version 用户通过 --scripts-version 指定的 react-scripts
+ * @param {*} verbose 用户输入的 --verbose 是否输入额外日志信息
+ * @param {*} originalDirectory 创建以 appName 为名的项目文件夹之前所在的目录，也就是 root 的上一层目录
+ * @param {*} template 项目的模板，默认使用 cra-template 和 cra-template-typescript
+ * @param {*} useYarn 是否使用 yarn 包管理器
+ * @param {*} usePnp 是否开启 yarn 的 pnp 特性
+ */
 function run(
   root,
   appName,
@@ -598,19 +619,23 @@ function run(
   useYarn,
   usePnp
 ) {
+  // 处理 react-scripts 和 template，因为这两个参数都有可能自定义，生成最终要使用的依赖包名
   Promise.all([
     getInstallPackage(version, originalDirectory),
     getTemplateInstallPackage(template, originalDirectory),
   ]).then(([packageToInstall, templateToInstall]) => {
+    // 要安装的依赖 react react-dom react-scripts
     const allDependencies = ['react', 'react-dom', packageToInstall];
 
     console.log('Installing packages. This might take a couple of minutes.');
 
+    // 提取 react-scripts 和 template 的包名信息
     Promise.all([
       getPackageInfo(packageToInstall),
       getPackageInfo(templateToInstall),
     ])
       .then(([packageInfo, templateInfo]) =>
+        // 检查当前网络状况是否良好，可以访问 yarn 源
         checkIfOnline(useYarn).then(isOnline => ({
           isOnline,
           packageInfo,
@@ -743,15 +768,20 @@ function run(
   });
 }
 
+// 处理 react-scripts 版本，因为用户可以通过 --scripts-version 参数指定自定义的 react-scripts
+// 返回 'react-scripts@x.x.x' 形式的字符串
 function getInstallPackage(version, originalDirectory) {
+  // 处理将要安装的 react-scripts 版本为 'react-scripts@x.x.x' 的形式
   let packageToInstall = 'react-scripts';
   const validSemver = semver.valid(version);
   if (validSemver) {
+    // 默认情况下为 'react-scripts@x.x.x' 形式
     packageToInstall += `@${validSemver}`;
   } else if (version) {
     if (version[0] === '@' && !version.includes('/')) {
       packageToInstall += version;
     } else if (version.match(/^file:/)) {
+      // 如果 version 是文件形式
       packageToInstall = `file:${path.resolve(
         originalDirectory,
         version.match(/^file:(.*)?$/)[1]
@@ -774,6 +804,8 @@ function getInstallPackage(version, originalDirectory) {
   ];
 
   for (const script of scriptsToWarn) {
+    // 如果用户指定的 react-scripts 是 react-scripts-ts，则打印提示并让用户做选择是否继续使用 react-scripts-ts
+    // react-scripts-ts 包已经废弃，create-react-app 已经原生支持 ts 了，可以使用 --template typescript 参数来支持 ts 
     if (packageToInstall.startsWith(script.name)) {
       return prompts({
         type: 'confirm',
@@ -793,10 +825,12 @@ function getInstallPackage(version, originalDirectory) {
   return Promise.resolve(packageToInstall);
 }
 
+// 处理 template，因为用户可以通过 --template 参数指定自定义模板
 function getTemplateInstallPackage(template, originalDirectory) {
   let templateToInstall = 'cra-template';
   if (template) {
     if (template.match(/^file:/)) {
+      // 如果 template 是一个文件协议字符串，就计算出的绝对路径
       templateToInstall = `file:${path.resolve(
         originalDirectory,
         template.match(/^file:(.*)?$/)[1]
@@ -810,6 +844,7 @@ function getTemplateInstallPackage(template, originalDirectory) {
     } else {
       // Add prefix 'cra-template-' to non-prefixed templates, leaving any
       // @scope/ and @version intact.
+      // 利用正则获取到这个包的 scope name version，然后拼成最终的 template 包名
       const packageMatch = template.match(/^(@[^/]+\/)?([^@]+)?(@.+)?$/);
       const scope = packageMatch[1] || '';
       const templateName = packageMatch[2] || '';
@@ -840,6 +875,7 @@ function getTemplateInstallPackage(template, originalDirectory) {
   return Promise.resolve(templateToInstall);
 }
 
+// 异步创建一个临时文件夹
 function getTemporaryDirectory() {
   return new Promise((resolve, reject) => {
     // Unsafe cleanup lets us recursively delete the directory if it contains
@@ -849,7 +885,9 @@ function getTemporaryDirectory() {
         reject(err);
       } else {
         resolve({
+          // 临时目录的绝对路径
           tmpdir: tmpdir,
+          // 用于手动清除这个临时目录
           cleanup: () => {
             try {
               callback();
@@ -864,6 +902,7 @@ function getTemporaryDirectory() {
   });
 }
 
+// 解压 tar 包到指定目录
 function extractStream(stream, dest) {
   return new Promise((resolve, reject) => {
     stream.pipe(
@@ -879,8 +918,11 @@ function extractStream(stream, dest) {
 }
 
 // Extract package name from tarball url or path.
+// 从包的安装url中提取包名
 function getPackageInfo(installPackage) {
   if (installPackage.match(/^.+\.(tgz|tar\.gz)$/)) {
+    // tar 包处理
+    // 创建一个临时目录，然后判断 tar 包是一个 http 的 url 还是本地地址。如果是 http 地址就将其下载到临时目录中，然后将其解压，否则直接读取，然后得到 package.json 中的 name 和 version 后返回
     return getTemporaryDirectory()
       .then(obj => {
         let stream;
@@ -900,6 +942,7 @@ function getPackageInfo(installPackage) {
         return { name, version };
       })
       .catch(err => {
+        // 如果无法从 tar 包中提取 semver 版本号，就根据 installPackage url 生成一个假想的版本号的名字返回
         // The package name could be with or without semver version, e.g. react-scripts-0.2.0-alpha.1.tgz
         // However, this function returns package name only without semver version.
         console.log(
@@ -916,6 +959,7 @@ function getPackageInfo(installPackage) {
         return Promise.resolve({ name: assumedProjectName });
       });
   } else if (installPackage.startsWith('git+')) {
+    // git+ 开头的url直接正则提取包名
     // Pull package name out of git urls e.g:
     // git+https://github.com/mycompany/react-scripts.git
     // git+ssh://github.com/mycompany/react-scripts.git#v1.2.3
@@ -924,11 +968,13 @@ function getPackageInfo(installPackage) {
     });
   } else if (installPackage.match(/.+@/)) {
     // Do not match @scope/ when stripping off @version or @tag
+    // @scope name@version 的形式直接正则获取 name 和 version
     return Promise.resolve({
       name: installPackage.charAt(0) + installPackage.substr(1).split('@')[0],
       version: installPackage.split('@')[1],
     });
   } else if (installPackage.match(/^file:/)) {
+    // file协议的url 从其位置中的 package.json 中获取 name 和 version
     const installPackagePath = installPackage.match(/^file:(.*)?$/)[1];
     const { name, version } = require(path.join(
       installPackagePath,
@@ -1197,6 +1243,7 @@ function isSafeToCreateProjectIn(root, name) {
   return true;
 }
 
+// 获取 https 代理地址
 function getProxy() {
   if (process.env.https_proxy) {
     return process.env.https_proxy;
@@ -1281,7 +1328,9 @@ function checkThatNpmCanReadCwd() {
   return false;
 }
 
+// 判断当前网络是否可以正常装包
 function checkIfOnline(useYarn) {
+  // 如果不使用 yarn 不去 ping yarn 的源了直接返回 true，假设是最好的情况
   if (!useYarn) {
     // Don't ping the Yarn registry.
     // We'll just assume the best case.
@@ -1289,8 +1338,10 @@ function checkIfOnline(useYarn) {
   }
 
   return new Promise(resolve => {
+    // 使用 dns 模块解析出 yarn 源的 ip 地址
     dns.lookup('registry.yarnpkg.com', err => {
       let proxy;
+      // 如果设置了代理，就去解析代理的地址
       if (err != null && (proxy = getProxy())) {
         // If a proxy is defined, we likely can't resolve external hostnames.
         // Try to resolve the proxy name as an indication of a connection.
